@@ -1,0 +1,9 @@
+{
+  "download_dir": "downloads",
+  "audio_format": "best",
+  "fallback_format": "mp3",
+  "organize_by": "genre_artist",
+  "max_filename_length": 120,
+  "max_concurrent_downloads": 3,
+  "default_genre": "Unknown"
+}
