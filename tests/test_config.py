@@ -1,9 +1,14 @@
 """Tests for configuration module."""
 
 import json
+import os
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from src.core.config import AppConfig, load_config, save_config
+from src.core.exceptions import ConfigError
 
 
 class TestAppConfig:
@@ -107,6 +112,147 @@ class TestAppConfig:
         assert loaded.default_genre == original.default_genre
         assert loaded.client_id == original.client_id
         assert loaded.client_secret == original.client_secret
+
+
+class TestConfigValidation:
+    """Tests for strict config validation."""
+
+    def test_invalid_audio_format(self) -> None:
+        """Rejects unsupported audio_format."""
+        with pytest.raises(ValueError, match="audio_format"):
+            AppConfig(audio_format="wav")
+
+    def test_invalid_fallback_format(self) -> None:
+        """Rejects unsupported fallback_format."""
+        with pytest.raises(ValueError, match="fallback_format"):
+            AppConfig(fallback_format="flac")
+
+    def test_invalid_organize_by(self) -> None:
+        """Rejects unsupported organize_by value."""
+        with pytest.raises(ValueError, match="organize_by"):
+            AppConfig(organize_by="random_order")
+
+    def test_zero_filename_length(self) -> None:
+        """Rejects max_filename_length <= 0."""
+        with pytest.raises(ValueError):
+            AppConfig(max_filename_length=0)
+
+    def test_negative_filename_length(self) -> None:
+        """Rejects negative max_filename_length."""
+        with pytest.raises(ValueError):
+            AppConfig(max_filename_length=-10)
+
+    def test_filename_length_too_large(self) -> None:
+        """Rejects max_filename_length > 255."""
+        with pytest.raises(ValueError):
+            AppConfig(max_filename_length=300)
+
+    def test_zero_concurrent_downloads(self) -> None:
+        """Rejects max_concurrent_downloads <= 0."""
+        with pytest.raises(ValueError):
+            AppConfig(max_concurrent_downloads=0)
+
+    def test_concurrent_downloads_too_large(self) -> None:
+        """Rejects max_concurrent_downloads > 10."""
+        with pytest.raises(ValueError):
+            AppConfig(max_concurrent_downloads=20)
+
+    def test_valid_all_audio_formats(self) -> None:
+        """Accepts all valid audio formats."""
+        for fmt in ("best", "mp3", "m4a", "opus"):
+            config = AppConfig(audio_format=fmt)
+            assert config.audio_format == fmt
+
+    def test_valid_all_organize_by(self) -> None:
+        """Accepts all valid organize_by schemes."""
+        for scheme in ("genre_artist", "artist_album", "playlist"):
+            config = AppConfig(organize_by=scheme)
+            assert config.organize_by == scheme
+
+    def test_invalid_json_file_raises_config_error(self, tmp_path: Path) -> None:
+        """Loading invalid JSON raises ConfigError."""
+        path = tmp_path / "bad.json"
+        path.write_text("not valid json {{{")
+        with pytest.raises(ConfigError, match="Invalid JSON"):
+            AppConfig.load(path)
+
+    def test_invalid_field_value_in_file_raises_config_error(
+        self, tmp_path: Path
+    ) -> None:
+        """Loading config file with invalid field values raises ConfigError."""
+        path = tmp_path / "config.json"
+        data = {"organize_by": "invalid_scheme"}
+        path.write_text(json.dumps(data))
+        with pytest.raises(ConfigError, match="Invalid configuration"):
+            AppConfig.load(path)
+
+
+class TestEnvVarOverrides:
+    """Tests for environment variable overrides."""
+
+    def test_env_var_overrides_client_id(self, tmp_path: Path) -> None:
+        """YMD_CLIENT_ID env var overrides config file value."""
+        path = tmp_path / "config.json"
+        data = {"client_id": "file_id", "client_secret": "file_secret"}
+        path.write_text(json.dumps(data))
+
+        with patch.dict(os.environ, {"YMD_CLIENT_ID": "env_id"}):
+            config = AppConfig.load(path)
+
+        assert config.client_id == "env_id"
+        assert config.client_secret == "file_secret"
+
+    def test_env_var_overrides_client_secret(self, tmp_path: Path) -> None:
+        """YMD_CLIENT_SECRET env var overrides config file value."""
+        path = tmp_path / "config.json"
+        data = {"client_id": "file_id", "client_secret": "file_secret"}
+        path.write_text(json.dumps(data))
+
+        with patch.dict(os.environ, {"YMD_CLIENT_SECRET": "env_secret"}):
+            config = AppConfig.load(path)
+
+        assert config.client_id == "file_id"
+        assert config.client_secret == "env_secret"
+
+    def test_both_env_vars_override(self, tmp_path: Path) -> None:
+        """Both env vars override config file values."""
+        path = tmp_path / "config.json"
+        data = {"client_id": "file_id", "client_secret": "file_secret"}
+        path.write_text(json.dumps(data))
+
+        with patch.dict(
+            os.environ,
+            {"YMD_CLIENT_ID": "env_id", "YMD_CLIENT_SECRET": "env_secret"},
+        ):
+            config = AppConfig.load(path)
+
+        assert config.client_id == "env_id"
+        assert config.client_secret == "env_secret"
+
+    def test_env_vars_without_config_file(self, tmp_path: Path) -> None:
+        """Env vars work even when config file doesn't exist."""
+        with patch.dict(
+            os.environ,
+            {"YMD_CLIENT_ID": "env_id", "YMD_CLIENT_SECRET": "env_secret"},
+        ):
+            config = AppConfig.load(tmp_path / "nonexistent.json")
+
+        assert config.client_id == "env_id"
+        assert config.client_secret == "env_secret"
+
+    def test_empty_env_vars_dont_override(self, tmp_path: Path) -> None:
+        """Empty env vars don't override config file values."""
+        path = tmp_path / "config.json"
+        data = {"client_id": "file_id", "client_secret": "file_secret"}
+        path.write_text(json.dumps(data))
+
+        # Ensure env vars are not set
+        env = {k: v for k, v in os.environ.items() if k not in ("YMD_CLIENT_ID", "YMD_CLIENT_SECRET")}
+        with patch.dict(os.environ, env, clear=True):
+            config = AppConfig.load(path)
+
+        assert config.client_id == "file_id"
+        assert config.client_secret == "file_secret"
 
 
 class TestLoadSaveConfig:
