@@ -3,7 +3,8 @@
 from pathlib import Path
 
 from rich.console import Console
-from ytmusicapi import OAuthCredentials, YTMusic, setup_oauth as ytmusicapi_setup_oauth
+from ytmusicapi import OAuthCredentials, YTMusic
+from ytmusicapi import setup_oauth as ytmusicapi_setup_oauth
 
 from src.core.config import load_config
 from src.core.exceptions import AuthenticationError
@@ -72,12 +73,9 @@ def setup_auth() -> bool:
         console.print(f"[red]{e}[/red]")
         return False
 
+    console.print("This will start a device-code authentication flow.")
     console.print(
-        "This will start a device-code authentication flow."
-    )
-    console.print(
-        "Follow the prompts to grant access to your "
-        "YouTube Music library.\n"
+        "Follow the prompts to grant access to your " "YouTube Music library.\n"
     )
 
     try:
@@ -109,20 +107,14 @@ def setup_auth() -> bool:
     except Exception as e:
         console.print(f"[red]Authentication failed:[/red] {e}")
         console.print("\n[yellow]Tips:[/yellow]")
+        console.print("  - Ensure client_id and client_secret are correct")
         console.print(
-            "  - Ensure client_id and client_secret are correct"
+            "  - The OAuth app type must be " "'TVs and Limited Input devices'"
         )
         console.print(
-            "  - The OAuth app type must be "
-            "'TVs and Limited Input devices'"
+            "  - YouTube Data API v3 must be enabled " "in your Google Cloud project"
         )
-        console.print(
-            "  - YouTube Data API v3 must be enabled "
-            "in your Google Cloud project"
-        )
-        console.print(
-            "  - Make sure you're logged into your Google account"
-        )
+        console.print("  - Make sure you're logged into your Google account")
         return False
 
 
@@ -137,9 +129,7 @@ def load_auth() -> YTMusic:
         AuthenticationError: If credentials don't exist or are invalid.
     """
     if not OAUTH_FILE.exists():
-        raise AuthenticationError(
-            "Not authenticated. Run 'ymd auth' first."
-        )
+        raise AuthenticationError("Not authenticated. Run 'ymd auth' first.")
 
     oauth_credentials = _get_oauth_credentials()
 

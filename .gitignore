@@ -31,6 +31,8 @@ headers_auth.json
 config.json
 downloads/
 *.log
+.env
+.env.*
 
 # OAuth tokens
 oauth.json

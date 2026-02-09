@@ -331,9 +331,7 @@ class TestDownloadTrackRetry:
         mock_sleep.assert_not_called()
 
     @patch("src.core.download.time.sleep")
-    def test_exhausts_all_retries(
-        self, mock_sleep: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_exhausts_all_retries(self, mock_sleep: MagicMock, tmp_path: Path) -> None:
         """Raises after exhausting all retry attempts."""
         mock_module, mock_ydl = self._make_mock_yt_dlp()
         mock_ydl.extract_info.side_effect = Exception("HTTP Error 429")

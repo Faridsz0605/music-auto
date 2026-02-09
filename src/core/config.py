@@ -75,9 +75,7 @@ class AppConfig(BaseModel):
         """Validate fallback_format is a supported value."""
         allowed = {"mp3", "m4a", "opus"}
         if v not in allowed:
-            raise ValueError(
-                f"fallback_format must be one of {allowed}, got '{v}'"
-            )
+            raise ValueError(f"fallback_format must be one of {allowed}, got '{v}'")
         return v
 
     @field_validator("organize_by")
@@ -123,9 +121,7 @@ class AppConfig(BaseModel):
             try:
                 data = json.loads(target.read_text())
             except json.JSONDecodeError as e:
-                raise ConfigError(
-                    f"Invalid JSON in {target}: {e}"
-                ) from e
+                raise ConfigError(f"Invalid JSON in {target}: {e}") from e
 
         # Environment variables override config file for secrets
         env_client_id = os.environ.get("YMD_CLIENT_ID")

@@ -6,6 +6,27 @@ from src.cli.ui import console, print_header, print_info, print_success
 from src.core.config import AppConfig, load_config, save_config
 
 CONFIG_FILE = "config.json"
+SENSITIVE_KEYS = {"client_id", "client_secret"}
+
+
+def _mask_sensitive(key: str, value: str) -> str:
+    """Mask sensitive config values for display.
+
+    Shows first 4 and last 4 characters for values longer than 8,
+    otherwise fully masked.
+
+    Args:
+        key: Configuration key name.
+        value: Configuration value.
+
+    Returns:
+        Masked or original value string.
+    """
+    if key not in SENSITIVE_KEYS or not value:
+        return value
+    if len(value) > 8:
+        return value[:4] + "****" + value[-4:]
+    return "****"
 
 
 def config_command(
@@ -72,5 +93,6 @@ def config_command(
         print_header("Configuration")
         data = config.model_dump(mode="json")
         for key, value in data.items():
-            console.print(f"  {key}: [bold]{value}[/bold]")
+            display = _mask_sensitive(key, str(value))
+            console.print(f"  {key}: [bold]{display}[/bold]")
         print_info(f"Config file: {CONFIG_FILE}")

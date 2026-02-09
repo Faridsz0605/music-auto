@@ -65,13 +65,11 @@ def _check_oauth_tokens() -> bool:
             from datetime import UTC, datetime
 
             expires_at = data["expires_at"]
-            if isinstance(expires_at, (int, float)):
+            if isinstance(expires_at, int | float):
                 expiry = datetime.fromtimestamp(expires_at, tz=UTC)
                 now = datetime.now(UTC)
                 if expiry < now:
-                    print_info(
-                        "Token expired - will be refreshed on next use"
-                    )
+                    print_info("Token expired - will be refreshed on next use")
 
         return True
     except (json.JSONDecodeError, OSError) as e:
@@ -82,10 +80,12 @@ def _check_oauth_tokens() -> bool:
 def _check_yt_dlp() -> bool:
     """Check if yt-dlp is installed and get version."""
     try:
-        import yt_dlp  # type: ignore[import-untyped]
+        import yt_dlp
 
         version = getattr(yt_dlp, "version", None)
-        version_str = getattr(version, "__version__", "unknown") if version else "unknown"
+        version_str = (
+            getattr(version, "__version__", "unknown") if version else "unknown"
+        )
         print_success(f"yt-dlp installed (version: {version_str})")
         return True
     except ImportError:
@@ -100,9 +100,7 @@ def _check_ffmpeg() -> bool:
         print_success(f"ffmpeg found: {ffmpeg_path}")
         return True
     else:
-        print_error(
-            "ffmpeg not found in PATH - required for audio conversion"
-        )
+        print_error("ffmpeg not found in PATH - required for audio conversion")
         return False
 
 
@@ -124,14 +122,11 @@ def _check_download_dir() -> bool:
                 print_success(f"Download dir writable: {download_dir}")
                 return True
             except OSError:
-                print_error(
-                    f"Download dir not writable: {download_dir}"
-                )
+                print_error(f"Download dir not writable: {download_dir}")
                 return False
         else:
             print_error(
-                f"Download path exists but is not a directory: "
-                f"{download_dir}"
+                f"Download path exists but is not a directory: " f"{download_dir}"
             )
             return False
     else:
@@ -197,14 +192,11 @@ def doctor_command(
     console.print()
     print_header("Results")
     if checks_passed == checks_total:
-        print_success(
-            f"All checks passed ({checks_passed}/{checks_total})"
-        )
+        print_success(f"All checks passed ({checks_passed}/{checks_total})")
         raise typer.Exit(code=0)
     else:
         failed = checks_total - checks_passed
         print_error(
-            f"{failed} check(s) failed "
-            f"({checks_passed}/{checks_total} passed)"
+            f"{failed} check(s) failed " f"({checks_passed}/{checks_total} passed)"
         )
         raise typer.Exit(code=1)

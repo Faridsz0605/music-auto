@@ -159,8 +159,7 @@ def download_track(
             if attempt < max_retries and _is_retryable_error(e):
                 wait_time = RETRY_BACKOFF_BASE ** (attempt + 1)
                 logger.warning(
-                    "Attempt %d/%d failed for %s: %s. "
-                    "Retrying in %ds...",
+                    "Attempt %d/%d failed for %s: %s. " "Retrying in %ds...",
                     attempt + 1,
                     max_retries + 1,
                     video_id,

@@ -247,7 +247,11 @@ class TestEnvVarOverrides:
         path.write_text(json.dumps(data))
 
         # Ensure env vars are not set
-        env = {k: v for k, v in os.environ.items() if k not in ("YMD_CLIENT_ID", "YMD_CLIENT_SECRET")}
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k not in ("YMD_CLIENT_ID", "YMD_CLIENT_SECRET")
+        }
         with patch.dict(os.environ, env, clear=True):
             config = AppConfig.load(path)
 

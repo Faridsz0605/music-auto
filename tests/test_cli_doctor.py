@@ -1,6 +1,5 @@
 """Tests for CLI doctor command."""
 
-import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -126,9 +125,7 @@ class TestDoctorChecks:
         assert _check_config() is True
 
     @patch("src.cli.commands.doctor.load_config")
-    def test_check_oauth_credentials_missing(
-        self, mock_load: MagicMock
-    ) -> None:
+    def test_check_oauth_credentials_missing(self, mock_load: MagicMock) -> None:
         """_check_oauth_credentials returns False when creds empty."""
         mock_load.return_value = MagicMock(client_id="", client_secret="")
         from src.cli.commands.doctor import _check_oauth_credentials
@@ -136,9 +133,7 @@ class TestDoctorChecks:
         assert _check_oauth_credentials() is False
 
     @patch("src.cli.commands.doctor.load_config")
-    def test_check_oauth_credentials_present(
-        self, mock_load: MagicMock
-    ) -> None:
+    def test_check_oauth_credentials_present(self, mock_load: MagicMock) -> None:
         """_check_oauth_credentials returns True when creds present."""
         mock_load.return_value = MagicMock(
             client_id="test_id", client_secret="test_secret"

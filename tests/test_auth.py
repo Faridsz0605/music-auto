@@ -29,18 +29,14 @@ class TestValidateCredentials:
     @patch("src.core.auth.load_config")
     def test_missing_client_id(self, mock_config: MagicMock) -> None:
         """Raises AuthenticationError when client_id is empty."""
-        mock_config.return_value = MagicMock(
-            client_id="", client_secret="test_secret"
-        )
+        mock_config.return_value = MagicMock(client_id="", client_secret="test_secret")
         with pytest.raises(AuthenticationError, match="client_id"):
             _validate_credentials()
 
     @patch("src.core.auth.load_config")
     def test_missing_client_secret(self, mock_config: MagicMock) -> None:
         """Raises AuthenticationError when client_secret is empty."""
-        mock_config.return_value = MagicMock(
-            client_id="test_id", client_secret=""
-        )
+        mock_config.return_value = MagicMock(client_id="test_id", client_secret="")
         with pytest.raises(AuthenticationError, match="client_id"):
             _validate_credentials()
 
@@ -61,9 +57,7 @@ class TestGetOAuthCredentials:
     @patch("src.core.auth.load_config")
     def test_missing_client_id(self, mock_config: MagicMock) -> None:
         """Raises AuthenticationError when client_id is empty."""
-        mock_config.return_value = MagicMock(
-            client_id="", client_secret="test_secret"
-        )
+        mock_config.return_value = MagicMock(client_id="", client_secret="test_secret")
         with pytest.raises(AuthenticationError, match="client_id"):
             _get_oauth_credentials()
 
