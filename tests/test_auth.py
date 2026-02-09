@@ -4,8 +4,45 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.core.auth import _get_oauth_credentials, load_auth, setup_auth
+from src.core.auth import (
+    _get_oauth_credentials,
+    _validate_credentials,
+    load_auth,
+    setup_auth,
+)
 from src.core.exceptions import AuthenticationError
+
+
+class TestValidateCredentials:
+    """Tests for _validate_credentials helper."""
+
+    @patch("src.core.auth.load_config")
+    def test_valid_credentials(self, mock_config: MagicMock) -> None:
+        """Returns tuple of (client_id, client_secret) from config."""
+        mock_config.return_value = MagicMock(
+            client_id="test_id", client_secret="test_secret"
+        )
+        client_id, client_secret = _validate_credentials()
+        assert client_id == "test_id"
+        assert client_secret == "test_secret"
+
+    @patch("src.core.auth.load_config")
+    def test_missing_client_id(self, mock_config: MagicMock) -> None:
+        """Raises AuthenticationError when client_id is empty."""
+        mock_config.return_value = MagicMock(
+            client_id="", client_secret="test_secret"
+        )
+        with pytest.raises(AuthenticationError, match="client_id"):
+            _validate_credentials()
+
+    @patch("src.core.auth.load_config")
+    def test_missing_client_secret(self, mock_config: MagicMock) -> None:
+        """Raises AuthenticationError when client_secret is empty."""
+        mock_config.return_value = MagicMock(
+            client_id="test_id", client_secret=""
+        )
+        with pytest.raises(AuthenticationError, match="client_id"):
+            _validate_credentials()
 
 
 class TestGetOAuthCredentials:
@@ -24,14 +61,9 @@ class TestGetOAuthCredentials:
     @patch("src.core.auth.load_config")
     def test_missing_client_id(self, mock_config: MagicMock) -> None:
         """Raises AuthenticationError when client_id is empty."""
-        mock_config.return_value = MagicMock(client_id="", client_secret="test_secret")
-        with pytest.raises(AuthenticationError, match="client_id"):
-            _get_oauth_credentials()
-
-    @patch("src.core.auth.load_config")
-    def test_missing_client_secret(self, mock_config: MagicMock) -> None:
-        """Raises AuthenticationError when client_secret is empty."""
-        mock_config.return_value = MagicMock(client_id="test_id", client_secret="")
+        mock_config.return_value = MagicMock(
+            client_id="", client_secret="test_secret"
+        )
         with pytest.raises(AuthenticationError, match="client_id"):
             _get_oauth_credentials()
 
@@ -40,61 +72,69 @@ class TestSetupAuth:
     """Tests for OAuth setup flow."""
 
     @patch("src.core.auth.YTMusic")
-    @patch("src.core.auth._get_oauth_credentials")
+    @patch("src.core.auth.ytmusicapi_setup_oauth")
+    @patch("src.core.auth._validate_credentials")
     def test_setup_success(
         self,
-        mock_get_creds: MagicMock,
+        mock_validate: MagicMock,
+        mock_setup_oauth: MagicMock,
         mock_ytmusic_cls: MagicMock,
     ) -> None:
         """Successful OAuth setup returns True."""
-        mock_creds = MagicMock()
-        mock_get_creds.return_value = mock_creds
+        mock_validate.return_value = ("test_id", "test_secret")
 
         mock_instance = MagicMock()
         mock_instance.get_library_playlists.return_value = [{"title": "Test"}]
         mock_ytmusic_cls.return_value = mock_instance
-        mock_ytmusic_cls.setup_oauth.return_value = None
+        mock_setup_oauth.return_value = None
 
         result = setup_auth()
 
         assert result is True
-        mock_ytmusic_cls.setup_oauth.assert_called_once()
+        mock_setup_oauth.assert_called_once_with(
+            client_id="test_id",
+            client_secret="test_secret",
+            filepath="oauth.json",
+            open_browser=True,
+        )
 
-    @patch("src.core.auth._get_oauth_credentials")
+    @patch("src.core.auth._validate_credentials")
     def test_setup_failure_missing_credentials(
         self,
-        mock_get_creds: MagicMock,
+        mock_validate: MagicMock,
     ) -> None:
         """Setup returns False when OAuth credentials are missing."""
-        mock_get_creds.side_effect = AuthenticationError("Missing creds")
+        mock_validate.side_effect = AuthenticationError("Missing creds")
 
         result = setup_auth()
         assert result is False
 
-    @patch("src.core.auth.YTMusic")
-    @patch("src.core.auth._get_oauth_credentials")
+    @patch("src.core.auth.ytmusicapi_setup_oauth")
+    @patch("src.core.auth._validate_credentials")
     def test_setup_failure_oauth_error(
         self,
-        mock_get_creds: MagicMock,
-        mock_ytmusic_cls: MagicMock,
+        mock_validate: MagicMock,
+        mock_setup_oauth: MagicMock,
     ) -> None:
         """Failed OAuth setup returns False."""
-        mock_get_creds.return_value = MagicMock()
-        mock_ytmusic_cls.setup_oauth.side_effect = Exception("OAuth failed")
+        mock_validate.return_value = ("test_id", "test_secret")
+        mock_setup_oauth.side_effect = Exception("OAuth failed")
 
         result = setup_auth()
         assert result is False
 
     @patch("src.core.auth.YTMusic")
-    @patch("src.core.auth._get_oauth_credentials")
+    @patch("src.core.auth.ytmusicapi_setup_oauth")
+    @patch("src.core.auth._validate_credentials")
     def test_setup_failure_validation_error(
         self,
-        mock_get_creds: MagicMock,
+        mock_validate: MagicMock,
+        mock_setup_oauth: MagicMock,
         mock_ytmusic_cls: MagicMock,
     ) -> None:
         """Setup returns False when credential validation fails."""
-        mock_get_creds.return_value = MagicMock()
-        mock_ytmusic_cls.setup_oauth.return_value = None
+        mock_validate.return_value = ("test_id", "test_secret")
+        mock_setup_oauth.return_value = None
         mock_instance = MagicMock()
         mock_instance.get_library_playlists.side_effect = Exception("Bad creds")
         mock_ytmusic_cls.return_value = mock_instance
