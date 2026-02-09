@@ -25,7 +25,8 @@ src/
 │       ├── search.py         # Search + download
 │       ├── status.py         # Sync status display
 │       ├── clean.py          # Orphan cleanup
-│       └── config_cmd.py     # Config management
+│       ├── config_cmd.py     # Config management
+│       └── doctor.py         # System health checks
 ├── core/
 │   ├── __init__.py
 │   ├── auth.py               # OAuth via ytmusicapi with OAuthCredentials
@@ -45,6 +46,7 @@ tests/
 ├── test_cli_auth.py
 ├── test_cli_clean.py
 ├── test_cli_config.py
+├── test_cli_doctor.py
 ├── test_cli_search.py
 ├── test_cli_status.py
 ├── test_cli_sync.py
@@ -86,12 +88,20 @@ tests/
 | `status` | Display current sync state and statistics         |
 | `clean`  | Remove orphaned files not in any synced playlist  |
 | `config` | View and manage configuration settings            |
+| `doctor` | System health checks (config, auth, yt-dlp, ffmpeg, API) |
+
+### Global Flags
+| Flag       | Description                                      |
+|------------|--------------------------------------------------|
+| `--verbose`/`-v` | Enable debug logging output                |
 
 ### Key Concepts
 - **Download pipeline:** yt-dlp download -> Mutagen tagging -> organizer (move to Genre/Artist/Track).
 - **Incremental sync:** `.sync_state.json` tracks which songs have been downloaded per playlist. Only new tracks are processed on subsequent runs.
-- **OAuth auth:** Requires custom Google Cloud OAuth credentials (Client ID + Client Secret) stored in `config.json`. Credentials stored in `oauth.json` (gitignored). Uses `ytmusicapi`'s OAuth flow with `OAuthCredentials`.
-- **Configuration:** `config.json` validated by Pydantic `AppConfig` model. Template in `config.example.json`.
+- **OAuth auth:** Requires custom Google Cloud OAuth credentials (Client ID + Client Secret). Can be stored in `config.json` or provided via `YMD_CLIENT_ID`/`YMD_CLIENT_SECRET` env vars (env vars take precedence). Tokens stored in `oauth.json` (gitignored). `setup_oauth()` takes `client_id`/`client_secret` as direct strings; `YTMusic()` takes an `OAuthCredentials` object.
+- **Configuration:** `config.json` validated by Pydantic `AppConfig` model with strict validators (audio_format, organize_by, bounded numeric fields). Template in `config.example.json`. Env vars override secrets.
+- **Download retry:** `download_track()` retries up to 3 times with exponential backoff (2s, 4s, 8s) on transient errors (403, 429, network, timeout).
+- **Logging:** Structured logging configured via `--verbose`/`-v` global flag. DEBUG level when verbose, WARNING otherwise.
 - **YouTubeProvider** in `src/providers/youtube.py` is the main API interface.
 
 ---
@@ -135,7 +145,7 @@ pytest                    # Full test suite
 
 ### Running Tests
 ```bash
-pytest                                    # All tests (176 tests)
+pytest                                    # All tests (214 tests)
 pytest tests/test_download.py             # Specific file
 pytest tests/test_tagger.py::test_tag_mp3 # Specific function
 pytest tests/test_integration.py          # Integration tests
@@ -255,7 +265,10 @@ def test_playlist_fetch(mock_ytmusic: MagicMock) -> None:
 - Requires `client_id` and `client_secret` from Google Cloud Console (YouTube Data API v3, OAuth type "TVs and Limited Input devices").
 - Credentials config stored in `config.json` (gitignored). OAuth tokens stored in `oauth.json` (gitignored).
 - Run `ymd config --set client_id=ID client_secret=SECRET` then `ymd auth` to authenticate.
-- The `_get_oauth_credentials()` helper in `src/core/auth.py` loads credentials from config and returns `OAuthCredentials`.
+- Or set `YMD_CLIENT_ID` and `YMD_CLIENT_SECRET` environment variables (these take precedence over config.json).
+- The `_validate_credentials()` helper in `src/core/auth.py` returns raw strings for `setup_oauth()`.
+- The `_get_oauth_credentials()` helper returns `OAuthCredentials` for `YTMusic()` constructor.
+- `setup_oauth()` takes `client_id`/`client_secret` as direct strings (not `OAuthCredentials`).
 - `load_auth()` passes `OAuthCredentials` when constructing `YTMusic` instances.
 
 ### Downloads
@@ -278,7 +291,9 @@ def test_playlist_fetch(mock_ytmusic: MagicMock) -> None:
 - Settings stored in `config.json` (gitignored).
 - Template provided: `config.example.json`.
 - Validated at load time by Pydantic `AppConfig` model in `src/core/config.py`.
+- Strict validators: `audio_format` (best/mp3/m4a/opus), `organize_by` (genre_artist/artist_album/playlist), bounded numeric fields.
 - Config keys: `download_dir`, `audio_format`, `fallback_format`, `organize_by`, `max_filename_length`, `max_concurrent_downloads`, `default_genre`, `client_id`, `client_secret`.
+- Env vars override secrets: `YMD_CLIENT_ID`, `YMD_CLIENT_SECRET`.
 
 ### Interactive UI
 - Playlist selection uses `questionary` checkboxes for multi-select.
@@ -350,6 +365,6 @@ def test_playlist_fetch(mock_ytmusic: MagicMock) -> None:
 
 ---
 
-**Last Updated:** 2026-02-07
+**Last Updated:** 2026-02-08
 **Python Version:** 3.12
 **Maintained By:** Personal project (Faris)
