@@ -19,6 +19,8 @@ class TestAppConfig:
         assert config.max_filename_length == 120
         assert config.max_concurrent_downloads == 3
         assert config.default_genre == "Unknown"
+        assert config.client_id == ""
+        assert config.client_secret == ""
 
     def test_custom_values(self) -> None:
         """Config accepts custom values."""
@@ -30,6 +32,15 @@ class TestAppConfig:
         assert config.download_dir == Path("/music")
         assert config.audio_format == "mp3"
         assert config.max_filename_length == 80
+
+    def test_custom_oauth_values(self) -> None:
+        """Config accepts client_id and client_secret."""
+        config = AppConfig(
+            client_id="my_client_id",
+            client_secret="my_client_secret",
+        )
+        assert config.client_id == "my_client_id"
+        assert config.client_secret == "my_client_secret"
 
     def test_save_and_load(self, tmp_path: Path) -> None:
         """Config can be saved and loaded from disk."""
@@ -67,6 +78,8 @@ class TestAppConfig:
         assert "max_filename_length" in data
         assert "max_concurrent_downloads" in data
         assert "default_genre" in data
+        assert "client_id" in data
+        assert "client_secret" in data
 
     def test_roundtrip_all_fields(self, tmp_path: Path) -> None:
         """All fields survive a save/load cycle."""
@@ -79,6 +92,8 @@ class TestAppConfig:
             max_filename_length=80,
             max_concurrent_downloads=5,
             default_genre="Electronic",
+            client_id="test_id",
+            client_secret="test_secret",
         )
         original.save(config_path)
         loaded = AppConfig.load(config_path)
@@ -90,6 +105,8 @@ class TestAppConfig:
         assert loaded.max_filename_length == original.max_filename_length
         assert loaded.max_concurrent_downloads == original.max_concurrent_downloads
         assert loaded.default_genre == original.default_genre
+        assert loaded.client_id == original.client_id
+        assert loaded.client_secret == original.client_secret
 
 
 class TestLoadSaveConfig:
@@ -131,3 +148,16 @@ class TestLoadSaveConfig:
         assert config.download_dir == Path("/custom/path")
         assert config.organize_by == "playlist"
         assert config.default_genre == "Jazz"
+
+    def test_load_config_with_oauth_fields(self, tmp_path: Path) -> None:
+        """load_config loads OAuth fields when present."""
+        path = tmp_path / "config.json"
+        data = {
+            "download_dir": "downloads",
+            "client_id": "my_id",
+            "client_secret": "my_secret",
+        }
+        path.write_text(json.dumps(data))
+        config = load_config(path)
+        assert config.client_id == "my_id"
+        assert config.client_secret == "my_secret"

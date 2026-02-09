@@ -8,7 +8,7 @@
 
 **Name:** ymd (YouTube Music Downloader)
 **Goal:** A personal CLI tool to sync YouTube Music playlists and download tracks in the best available quality, organized for playback on a DAP (Digital Audio Player).
-**Stack:** Python 3.12, Typer (CLI), ytmusicapi (YouTube Music API, OAuth), yt-dlp (download engine), Mutagen (metadata tagging), Pydantic (config validation), questionary (interactive selection), Rich (UI formatting).
+**Stack:** Python 3.12, Typer (CLI), ytmusicapi (YouTube Music API, OAuth with custom credentials), yt-dlp (download engine), Mutagen (metadata tagging), Pydantic (config validation), questionary (interactive selection), Rich (UI formatting).
 
 ### Architecture
 ```
@@ -28,12 +28,11 @@ src/
 │       └── config_cmd.py     # Config management
 ├── core/
 │   ├── __init__.py
-│   ├── auth.py               # OAuth via ytmusicapi
-│   ├── config.py             # Pydantic AppConfig model
+│   ├── auth.py               # OAuth via ytmusicapi with OAuthCredentials
+│   ├── config.py             # Pydantic AppConfig model (includes client_id, client_secret)
 │   ├── download.py           # yt-dlp engine + parallel downloads
 │   ├── exceptions.py         # Custom exception hierarchy (base: YMDError)
 │   ├── organizer.py          # File organization + name sanitization
-│   ├── playlist.py           # Legacy (kept for reference)
 │   ├── sync_state.py         # Incremental sync state (.sync_state.json)
 │   └── tagger.py             # Mutagen metadata tagging
 └── providers/
@@ -43,12 +42,33 @@ tests/
 ├── __init__.py
 ├── conftest.py
 ├── test_auth.py
+├── test_cli_auth.py
+├── test_cli_clean.py
+├── test_cli_config.py
+├── test_cli_search.py
+├── test_cli_status.py
+├── test_cli_sync.py
 ├── test_config.py
 ├── test_download.py
+├── test_integration.py
 ├── test_organizer.py
 ├── test_provider.py
 ├── test_sync_state.py
-└── test_tagger.py
+├── test_tagger.py
+└── test_ui.py
+.claude/
+├── agents/
+│   ├── code-reviewer.md      # Reviews code against AGENTS.md standards
+│   ├── test-runner.md         # Executes tests and analyzes results
+│   ├── lint-checker.md        # Runs ruff + mypy checks
+│   ├── security-auditor.md    # Audits for security vulnerabilities
+│   └── integration-tester.md  # Validates full pipeline flow
+└── skills/
+    └── ymd-development/
+        ├── SKILL.md           # Main skill (architecture, conventions)
+        ├── workflows/         # add-command, add-provider, add-test, debug-pipeline
+        ├── references/        # architecture, conventions, pipeline
+        └── templates/         # command-template, test-template
 ```
 
 ### Design Principles
@@ -70,9 +90,9 @@ tests/
 ### Key Concepts
 - **Download pipeline:** yt-dlp download -> Mutagen tagging -> organizer (move to Genre/Artist/Track).
 - **Incremental sync:** `.sync_state.json` tracks which songs have been downloaded per playlist. Only new tracks are processed on subsequent runs.
-- **OAuth auth:** Credentials stored in `oauth.json` (gitignored). Uses `ytmusicapi`'s OAuth flow.
+- **OAuth auth:** Requires custom Google Cloud OAuth credentials (Client ID + Client Secret) stored in `config.json`. Credentials stored in `oauth.json` (gitignored). Uses `ytmusicapi`'s OAuth flow with `OAuthCredentials`.
 - **Configuration:** `config.json` validated by Pydantic `AppConfig` model. Template in `config.example.json`.
-- **YouTubeProvider** in `src/providers/youtube.py` is the main API interface. `src/core/playlist.py` is legacy code kept for reference only.
+- **YouTubeProvider** in `src/providers/youtube.py` is the main API interface.
 
 ---
 
@@ -81,6 +101,7 @@ tests/
 ### Prerequisites
 - [mise-en-place](https://mise.jdx.dev/) for Python version management.
 - Python 3.12 is pinned in `mise.toml`.
+- Google Cloud project with YouTube Data API v3 enabled and OAuth Client ID (type: "TVs and Limited Input devices").
 
 ### Initial Setup
 ```bash
@@ -95,6 +116,13 @@ source venv/bin/activate
 pip install -e ".[dev]"
 # Or from requirements if available:
 pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# Configure OAuth credentials
+ymd config --set client_id=YOUR_CLIENT_ID client_secret=YOUR_CLIENT_SECRET
+
+# Authenticate
+ymd auth
 ```
 
 ### Verification Commands (Run before EVERY commit)
@@ -107,9 +135,10 @@ pytest                    # Full test suite
 
 ### Running Tests
 ```bash
-pytest                                    # All tests
+pytest                                    # All tests (176 tests)
 pytest tests/test_download.py             # Specific file
 pytest tests/test_tagger.py::test_tag_mp3 # Specific function
+pytest tests/test_integration.py          # Integration tests
 pytest -s                                 # With stdout output
 pytest -v                                 # Verbose mode
 ```
@@ -123,7 +152,7 @@ python -m src.cli.main sync
 python -m src.cli.main search "artist name - song title"
 python -m src.cli.main status
 python -m src.cli.main clean
-python -m src.cli.main config
+python -m src.cli.main config --show
 
 # Via entry point (after pip install -e .)
 ymd --help
@@ -174,7 +203,7 @@ from pathlib import Path
 
 # Third-party
 import typer
-from ytmusicapi import YTMusic
+from ytmusicapi import OAuthCredentials, YTMusic
 
 # Local
 from src.core.config import load_config
@@ -191,6 +220,16 @@ from src.providers.youtube import YouTubeProvider
 - **Mocking:** Network calls MUST be mocked in unit tests. Use `unittest.mock` or `pytest-mock`.
 - **Fixtures:** Use `@pytest.fixture` in `conftest.py` for shared setup/teardown.
 - **Test files** mirror `src/` modules: `test_auth.py`, `test_config.py`, `test_download.py`, `test_organizer.py`, `test_provider.py`, `test_sync_state.py`, `test_tagger.py`.
+- **CLI tests** use `typer.testing.CliRunner`: `test_cli_auth.py`, `test_cli_sync.py`, `test_cli_search.py`, `test_cli_status.py`, `test_cli_clean.py`, `test_cli_config.py`.
+- **UI tests** in `test_ui.py` mock the Rich console.
+- **Integration tests** in `test_integration.py` validate data flow between pipeline stages.
+
+### Test Structure
+- Unit tests: one file per source module
+- CLI tests: one file per CLI command (using CliRunner)
+- Integration tests: validate interfaces between modules
+- All test functions have return type `-> None`
+- Use `MagicMock` (not `Console`) as type hint for `@patch` decorated parameters
 
 ### Example Test Structure
 ```python
@@ -212,13 +251,15 @@ def test_playlist_fetch(mock_ytmusic: MagicMock) -> None:
 ## 5. Project-Specific Rules
 
 ### Authentication
-- Uses `ytmusicapi` OAuth flow (not cookie/header-based).
-- Credentials stored in `oauth.json` (gitignored).
-- Run `ymd auth` to authenticate interactively.
-- Validate credentials on startup and provide clear error messages if expired or missing.
+- Uses `ytmusicapi` OAuth flow with **custom credentials** (required since v1.10.0).
+- Requires `client_id` and `client_secret` from Google Cloud Console (YouTube Data API v3, OAuth type "TVs and Limited Input devices").
+- Credentials config stored in `config.json` (gitignored). OAuth tokens stored in `oauth.json` (gitignored).
+- Run `ymd config --set client_id=ID client_secret=SECRET` then `ymd auth` to authenticate.
+- The `_get_oauth_credentials()` helper in `src/core/auth.py` loads credentials from config and returns `OAuthCredentials`.
+- `load_auth()` passes `OAuthCredentials` when constructing `YTMusic` instances.
 
 ### Downloads
-- Use `yt-dlp` with best available audio: `bestaudio[ext=m4a]/bestaudio`.
+- Use `yt-dlp` with best available audio: `bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio`.
 - Parallel downloads controlled by `max_concurrent_downloads` config (default: 3).
 - Pipeline: download -> tag with Mutagen (artist, title, album, cover art) -> organize to final path.
 
@@ -229,7 +270,7 @@ def test_playlist_fetch(mock_ytmusic: MagicMock) -> None:
 - Handled by `src/core/organizer.py`.
 
 ### Sync State
-- `.sync_state.json` in the project root tracks downloaded songs per playlist.
+- `.sync_state.json` in the download directory tracks downloaded songs per playlist.
 - Enables incremental sync: only new/unsynced tracks are downloaded on subsequent runs.
 - Managed by `src/core/sync_state.py`.
 
@@ -237,7 +278,7 @@ def test_playlist_fetch(mock_ytmusic: MagicMock) -> None:
 - Settings stored in `config.json` (gitignored).
 - Template provided: `config.example.json`.
 - Validated at load time by Pydantic `AppConfig` model in `src/core/config.py`.
-- Config keys: `download_dir`, `audio_format`, `fallback_format`, `organize_by`, `max_filename_length`, `max_concurrent_downloads`, `default_genre`.
+- Config keys: `download_dir`, `audio_format`, `fallback_format`, `organize_by`, `max_filename_length`, `max_concurrent_downloads`, `default_genre`, `client_id`, `client_secret`.
 
 ### Interactive UI
 - Playlist selection uses `questionary` checkboxes for multi-select.
@@ -251,12 +292,23 @@ def test_playlist_fetch(mock_ytmusic: MagicMock) -> None:
 1. **Read Context:** Always read `AGENTS.md` and related source files before editing.
 2. **Understand Architecture:** Check `src/` structure before adding new files. Respect the existing module boundaries.
 3. **Check Tests:** Run existing tests to understand expected behavior before modifying code.
+4. **Load Skill:** Use the `ymd-development` skill (`.claude/skills/ymd-development/SKILL.md`) for domain-specific guidance.
 
 ### During Development
 1. **Small Steps:** Verify after every significant change (lint -> format -> type check -> test).
 2. **No Placeholders:** Write complete, working code. No `pass` or `# TODO` in commits.
 3. **Ask First:** If adding a new dependency, ask the user. If a plan has risk (file deletion, API changes), confirm first.
-4. **Legacy Awareness:** `src/core/playlist.py` is legacy code. Main playlist/API logic lives in `src/providers/youtube.py`.
+4. **Use Sub-agents:** After writing code, use `code-reviewer` agent. After running tests, use `test-runner` agent. Before committing, use `lint-checker` agent.
+5. **Update AGENTS.md:** After any structural change (new files, new config fields, new commands), update this document.
+
+### Sub-agents Available
+| Agent | Purpose | When to Use |
+|-------|---------|-------------|
+| `code-reviewer` | Reviews code against AGENTS.md standards | After writing/modifying code |
+| `test-runner` | Runs tests and analyzes failures | After code changes |
+| `lint-checker` | Runs ruff + mypy checks | Before committing |
+| `security-auditor` | Checks for credential exposure, injection | When modifying auth/config/download |
+| `integration-tester` | Validates pipeline data flow | After modifying pipeline components |
 
 ### Communication
 - **DO:** Use the chat to ask questions, explain decisions, and seek clarification.
@@ -268,17 +320,17 @@ def test_playlist_fetch(mock_ytmusic: MagicMock) -> None:
 
 ### Runtime
 - `typer[all]>=0.12.3` - CLI framework with Rich integration
-- `ytmusicapi>=1.7.0` - YouTube Music unofficial API (OAuth)
+- `ytmusicapi>=1.10.0` - YouTube Music unofficial API (OAuth with custom credentials)
 - `yt-dlp>=2024.3.10` - Audio/video downloader
 - `mutagen>=1.47.0` - Audio metadata tagging
 - `pydantic>=2.9.0` - Configuration validation
 - `questionary>=2.0.0` - Interactive terminal prompts
 
 ### Development
-- `pytest` - Testing framework
-- `pytest-mock` - Mocking utilities
-- `ruff` - Linter and formatter
-- `mypy` - Static type checker (strict mode)
+- `pytest>=8.0.0` - Testing framework
+- `pytest-mock>=3.12.0` - Mocking utilities
+- `ruff>=0.9.0` - Linter and formatter
+- `mypy>=1.8.0` - Static type checker (strict mode)
 - `pydantic.mypy` - mypy plugin for Pydantic
 
 ---
@@ -287,17 +339,17 @@ def test_playlist_fetch(mock_ytmusic: MagicMock) -> None:
 
 | Issue | Solution |
 |-------|----------|
-| OAuth authentication fails | Re-run `ymd auth` to re-authenticate. Delete `oauth.json` if corrupt. |
+| OAuth authentication fails | Ensure `client_id` and `client_secret` are set in config.json. Re-run `ymd auth`. |
+| "OAuth client_id and client_secret are required" | Run `ymd config --set client_id=YOUR_ID client_secret=YOUR_SECRET` |
 | Downloads fail with 403 | Update yt-dlp: `pip install -U yt-dlp` |
-| Type errors in tests | Ensure mock objects have proper type annotations. Check `mypy --strict`. |
+| Type errors in tests | Use `MagicMock` as type hint for `@patch` parameters. Check `mypy --strict`. |
 | Import errors | Ensure `PYTHONPATH=.` is set (mise.toml handles this) or run as module: `python -m src.cli.main` |
 | Filenames too long for DAP | `max_filename_length` in config controls truncation (default: 120) |
 | Sync re-downloads everything | Check `.sync_state.json` exists and is not corrupted |
 | questionary prompts hang in CI | questionary requires an interactive terminal; mock in tests |
-| `src/core/playlist.py` confusion | This is legacy code. Use `src/providers/youtube.py` (`YouTubeProvider`) instead. |
 
 ---
 
-**Last Updated:** 2026-02-05
+**Last Updated:** 2026-02-07
 **Python Version:** 3.12
 **Maintained By:** Personal project (Faris)

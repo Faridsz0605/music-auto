@@ -38,6 +38,14 @@ class AppConfig(BaseModel):
         default="Unknown",
         description="Default genre when not available from YTM",
     )
+    client_id: str = Field(
+        default="",
+        description="Google OAuth Client ID for YouTube Data API",
+    )
+    client_secret: str = Field(
+        default="",
+        description="Google OAuth Client Secret for YouTube Data API",
+    )
 
     def save(self, path: Path | None = None) -> None:
         """Save configuration to JSON file."""

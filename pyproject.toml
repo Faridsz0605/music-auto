@@ -5,7 +5,7 @@ description = "YouTube Music Downloader - Sync and download playlists for DAP"
 requires-python = ">=3.12"
 dependencies = [
     "typer[all]>=0.12.3",
-    "ytmusicapi>=1.7.0",
+    "ytmusicapi>=1.10.0",
     "yt-dlp>=2024.3.10",
     "mutagen>=1.47.0",
     "pydantic>=2.9.0",
