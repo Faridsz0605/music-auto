@@ -10,6 +10,7 @@ import pytest
 from src.core.download import (
     BEST_AUDIO_FORMAT,
     _build_yt_dlp_opts,
+    _is_retryable_error,
     download_tracks_parallel,
 )
 from src.core.exceptions import DownloadError
@@ -243,3 +244,105 @@ class TestDownloadTracksParallel:
         results = download_tracks_parallel([], tmp_path)
         assert results == []
         mock_download.assert_not_called()
+
+
+class TestIsRetryableError:
+    """Tests for retry error classification."""
+
+    def test_403_error(self) -> None:
+        """HTTP 403 is retryable."""
+        assert _is_retryable_error(Exception("HTTP Error 403: Forbidden")) is True
+
+    def test_429_error(self) -> None:
+        """HTTP 429 rate limit is retryable."""
+        assert _is_retryable_error(Exception("HTTP Error 429")) is True
+
+    def test_connection_error(self) -> None:
+        """Connection errors are retryable."""
+        assert _is_retryable_error(Exception("Connection reset")) is True
+
+    def test_timeout_error(self) -> None:
+        """Timeout errors are retryable."""
+        assert _is_retryable_error(Exception("Request timeout")) is True
+
+    def test_non_retryable_error(self) -> None:
+        """Permanent errors are not retryable."""
+        assert _is_retryable_error(Exception("Video not found")) is False
+
+    def test_format_error(self) -> None:
+        """Format errors are not retryable."""
+        assert _is_retryable_error(Exception("No suitable format")) is False
+
+
+class TestDownloadTrackRetry:
+    """Tests for download retry with exponential backoff."""
+
+    def _make_mock_yt_dlp(self) -> tuple[MagicMock, MagicMock]:
+        """Create a mock yt_dlp module with YoutubeDL context manager."""
+        mock_module = MagicMock()
+        mock_ydl = MagicMock()
+        mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_module.YoutubeDL.return_value = mock_ydl
+        return mock_module, mock_ydl
+
+    @patch("src.core.download.time.sleep")
+    def test_retry_on_transient_error(
+        self, mock_sleep: MagicMock, tmp_path: Path
+    ) -> None:
+        """Retries on transient 403 error, then succeeds."""
+        mock_module, mock_ydl = self._make_mock_yt_dlp()
+
+        call_count = 0
+
+        def extract_side_effect(*args: Any, **kwargs: Any) -> dict[str, str]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("HTTP Error 403: Forbidden")
+            # Second attempt succeeds
+            (tmp_path / "testid.mp3").write_bytes(b"audio")
+            return {"id": "testid"}
+
+        mock_ydl.extract_info.side_effect = extract_side_effect
+
+        with patch.dict(sys.modules, {"yt_dlp": mock_module}):
+            from src.core.download import download_track
+
+            result = download_track("testid", tmp_path, max_retries=3)
+
+        assert result == tmp_path / "testid.mp3"
+        mock_sleep.assert_called_once()
+
+    @patch("src.core.download.time.sleep")
+    def test_no_retry_on_permanent_error(
+        self, mock_sleep: MagicMock, tmp_path: Path
+    ) -> None:
+        """Does not retry on permanent (non-transient) errors."""
+        mock_module, mock_ydl = self._make_mock_yt_dlp()
+        mock_ydl.extract_info.side_effect = Exception("Video not found")
+
+        with patch.dict(sys.modules, {"yt_dlp": mock_module}):
+            from src.core.download import download_track
+
+            with pytest.raises(DownloadError, match="Failed to download"):
+                download_track("badid", tmp_path, max_retries=3)
+
+        mock_sleep.assert_not_called()
+
+    @patch("src.core.download.time.sleep")
+    def test_exhausts_all_retries(
+        self, mock_sleep: MagicMock, tmp_path: Path
+    ) -> None:
+        """Raises after exhausting all retry attempts."""
+        mock_module, mock_ydl = self._make_mock_yt_dlp()
+        mock_ydl.extract_info.side_effect = Exception("HTTP Error 429")
+
+        with patch.dict(sys.modules, {"yt_dlp": mock_module}):
+            from src.core.download import download_track
+
+            with pytest.raises(DownloadError, match="after.*attempts"):
+                download_track("testid", tmp_path, max_retries=2)
+
+        # Should have slept for each retry attempt
+        assert mock_sleep.call_count == 2

@@ -1,6 +1,7 @@
 """Download engine using yt-dlp for audio extraction."""
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,10 @@ MP3_POSTPROCESS = {
     "preferredcodec": "mp3",
     "preferredquality": "320",
 }
+
+# Retry configuration
+MAX_RETRIES = 3
+RETRY_BACKOFF_BASE = 2  # seconds: 2, 4, 8
 
 
 def _build_yt_dlp_opts(
@@ -63,20 +68,49 @@ def _build_yt_dlp_opts(
     return opts
 
 
+def _is_retryable_error(error: Exception) -> bool:
+    """Check if an error is transient and worth retrying.
+
+    Args:
+        error: The exception that occurred.
+
+    Returns:
+        True if the error is likely transient (network, rate limit).
+    """
+    error_str = str(error).lower()
+    retryable_patterns = [
+        "403",
+        "429",
+        "http error",
+        "connection",
+        "timeout",
+        "network",
+        "temporary",
+        "unavailable",
+        "rate limit",
+    ]
+    return any(pattern in error_str for pattern in retryable_patterns)
+
+
 def download_track(
     video_id: str,
     output_dir: Path,
     audio_format: str = "best",
     fallback_format: str = "mp3",
+    max_retries: int = MAX_RETRIES,
 ) -> Path | None:
     """
-    Download a single track from YouTube Music.
+    Download a single track from YouTube Music with retry logic.
+
+    Retries up to max_retries times with exponential backoff
+    (2s, 4s, 8s) for transient errors (403, 429, network issues).
 
     Args:
         video_id: YouTube video ID.
         output_dir: Directory to save the downloaded file.
         audio_format: Preferred audio format.
         fallback_format: Fallback format for DAP compatibility.
+        max_retries: Maximum number of retry attempts.
 
     Returns:
         Path to downloaded file, or None if download failed.
@@ -92,33 +126,55 @@ def download_track(
 
     opts = _build_yt_dlp_opts(output_dir, audio_format, fallback_format)
 
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            if info is None:
-                raise DownloadError(f"No info extracted for {video_id}")
+    last_error: Exception | None = None
 
-            # Find the downloaded file
-            # yt-dlp may change extension after postprocessing
-            for ext in ["mp3", "m4a", "opus", "webm", "ogg"]:
-                candidate = output_dir / f"{video_id}.{ext}"
-                if candidate.exists():
-                    logger.info(f"Downloaded: {candidate}")
-                    return candidate
+    for attempt in range(max_retries + 1):
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                if info is None:
+                    raise DownloadError(f"No info extracted for {video_id}")
 
-            # Check for any file matching the video_id
-            for file in output_dir.iterdir():
-                if file.stem == video_id and file.is_file():
-                    return file
+                # Find the downloaded file
+                # yt-dlp may change extension after postprocessing
+                for ext in ["mp3", "m4a", "opus", "webm", "ogg"]:
+                    candidate = output_dir / f"{video_id}.{ext}"
+                    if candidate.exists():
+                        logger.info("Downloaded: %s", candidate)
+                        return candidate
 
-            raise DownloadError(
-                f"Download completed but file not found " f"for {video_id}"
-            )
+                # Check for any file matching the video_id
+                for file in output_dir.iterdir():
+                    if file.stem == video_id and file.is_file():
+                        return file
 
-    except DownloadError:
-        raise
-    except Exception as e:
-        raise DownloadError(f"Failed to download {video_id}: {e}") from e
+                raise DownloadError(
+                    f"Download completed but file not found for {video_id}"
+                )
+
+        except DownloadError:
+            raise
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries and _is_retryable_error(e):
+                wait_time = RETRY_BACKOFF_BASE ** (attempt + 1)
+                logger.warning(
+                    "Attempt %d/%d failed for %s: %s. "
+                    "Retrying in %ds...",
+                    attempt + 1,
+                    max_retries + 1,
+                    video_id,
+                    e,
+                    wait_time,
+                )
+                time.sleep(wait_time)
+            else:
+                break
+
+    raise DownloadError(
+        f"Failed to download {video_id} after "
+        f"{max_retries + 1} attempts: {last_error}"
+    ) from last_error
 
 
 def download_tracks_parallel(
