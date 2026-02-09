@@ -6,6 +6,6 @@
   "max_filename_length": 120,
   "max_concurrent_downloads": 3,
   "default_genre": "Unknown",
-  "client_id": "YOUR_GOOGLE_OAUTH_CLIENT_ID",
-  "client_secret": "YOUR_GOOGLE_OAUTH_CLIENT_SECRET"
+  "client_id": "",
+  "client_secret": ""
 }
